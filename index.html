@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestión Académica - Univalle Cartago (V12.0 Cronograma)</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    
+    <style>
+        body { font-family: 'Roboto', sans-serif; }
+        .univalle-red { background-color: #DD1828; }
+        .univalle-gray { background-color: #333333; }
+        input[type="number"]::-webkit-inner-spin-button,
+        input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        .tab-active { border-bottom: 3px solid #DD1828; color: #DD1828; font-weight: bold; }
+        .spinner { border: 4px solid rgba(0, 0, 0, 0.1); width: 24px; height: 24px; border-radius: 50%; border-left-color: #DD1828; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        /* Inputs transparentes */
+        .config-input { border-bottom: 1px dashed #ccc; padding: 2px; width: 100%; font-size: 0.8rem; color: #555; background: transparent; }
+        .config-input:focus { outline: none; border-bottom: 1px solid #DD1828; color: #000; }
+        .date-input { font-size: 0.7rem; border: 1px solid #eee; border-radius: 4px; padding: 1px; color: #666; width: 100%; }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+    <div id="app" class="min-h-screen flex flex-col">
+
+        <header class="univalle-red text-white shadow-lg sticky top-0 z-50">
+            <div class="container mx-auto px-4 py-3 flex justify-between items-center">
+                <div>
+                    <h1 class="text-xl md:text-2xl font-bold">INTRODUCCIÓN A LAS TECNOLOGÍAS</h1>
+                    <p class="text-xs md:text-sm opacity-90">Sincronizado en la Nube ☁️ | Prof. Montgomery</p>
+                </div>
+                <div class="text-right flex items-center gap-3">
+                    <div v-if="loading" class="spinner"></div>
+                    <div v-else>
+                        <span v-if="status === 'saved'" class="text-xs bg-green-700 px-2 py-1 rounded text-white font-bold">✓ GUARDADO</span>
+                        <span v-if="status === 'editing'" class="text-xs bg-yellow-600 px-2 py-1 rounded text-white">✍️ EDITANDO...</span>
+                        <span v-if="status === 'error'" class="text-xs bg-black px-2 py-1 rounded text-red-500 font-bold">⚠ ERROR RED</span>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <nav class="bg-white shadow border-b border-gray-200">
+            <div class="container mx-auto px-4 flex flex-wrap justify-between items-center py-2 gap-2">
+                <div class="flex space-x-6">
+                    <button @click="currentTab = 'grades'" :class="{'tab-active': currentTab === 'grades'}" class="py-2 px-2 hover:text-red-600 transition font-medium">📊 Notas</button>
+                    <button @click="currentTab = 'attendance'" :class="{'tab-active': currentTab === 'attendance'}" class="py-2 px-2 hover:text-red-600 transition font-medium">📅 Asistencia</button>
+                </div>
+                <div class="flex gap-2 items-center">
+                    <button @click="downloadTemplate" class="hidden md:flex py-2 px-3 bg-gray-500 text-white rounded hover:bg-gray-600 text-xs items-center gap-1 shadow" title="Descarga plantilla vacía">
+                        📄 Plantilla
+                    </button>
+
+                    <label class="cursor-pointer py-2 px-3 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs flex items-center gap-1 shadow">
+                        📤 Subir Excel
+                        <input type="file" @change="importExcel" class="hidden" accept=".xlsx, .xls, .csv">
+                    </label>
+                    
+                    <button @click="exportToExcel" class="py-2 px-3 bg-green-600 text-white rounded hover:bg-green-700 text-xs flex items-center gap-1 shadow font-bold">
+                        📥 Excel Detallado
+                    </button>
+                </div>
+            </div>
+        </nav>
+
+        <main class="flex-grow container mx-auto p-4 overflow-x-auto">
+            
+            <div v-if="currentTab === 'grades'">
+                
+                <div class="bg-white p-3 rounded shadow mb-4 border border-gray-200">
+                    <details>
+                        <summary class="font-bold text-gray-700 text-sm cursor-pointer select-none flex items-center gap-2">
+                            <span>⚙️ Configurar Nombres y Fechas de Entregas (Clic para abrir)</span>
+                        </summary>
+                        
+                        <div class="mt-4 p-4 bg-gray-50 rounded border border-gray-200 text-sm">
+                            <h4 class="font-bold text-red-700 mb-2 border-b pb-1">1. Talleres y Entregables (30%)</h4>
+                            <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
+                                <div class="flex flex-col gap-1">
+                                    <label class="text-[10px] text-gray-500 font-bold">Taller 1 (2%)</label>
+                                    <input v-model="config.lab1Name" class="config-input mb-1">
+                                    <input type="date" v-model="config.lab1Date" class="date-input">
+                                </div>
+                                <div class="flex flex-col gap-1">
+                                    <label class="text-[10px] text-gray-500 font-bold">Taller 2 (3%)</label>
+                                    <input v-model="config.lab2Name" class="config-input mb-1">
+                                    <input type="date" v-model="config.lab2Date" class="date-input">
+                                </div>
+                                <div class="flex flex-col gap-1">
+                                    <label class="text-[10px] text-gray-500 font-bold">Taller 3 (5%)</label>
+                                    <input v-model="config.lab3Name" class="config-input mb-1">
+                                    <input type="date" v-model="config.lab3Date" class="date-input">
+                                </div>
+                                <div class="flex flex-col gap-1">
+                                    <label class="text-[10px] text-gray-500 font-bold">Taller 4 (3%)</label>
+                                    <input v-model="config.lab4Name" class="config-input mb-1">
+                                    <input type="date" v-model="config.lab4Date" class="date-input">
+                                </div>
+                                <div class="flex flex-col gap-1">
+                                    <label class="text-[10px] text-gray-500 font-bold">Taller 5 (2%)</label>
+                                    <input v-model="config.lab5Name" class="config-input mb-1">
+                                    <input type="date" v-model="config.lab5Date" class="date-input">
+                                </div>
+                                <div class="flex flex-col gap-1">
+                                    <label class="text-[10px] text-gray-500 font-bold">Taller 6 (3%)</label>
+                                    <input v-model="config.lab6Name" class="config-input mb-1">
+                                    <input type="date" v-model="config.lab6Date" class="date-input">
+                                </div>
+                                <div class="flex flex-col gap-1">
+                                    <label class="text-[10px] text-gray-500 font-bold">Taller 7 (2%)</label>
+                                    <input v-model="config.lab7Name" class="config-input mb-1">
+                                    <input type="date" v-model="config.lab7Date" class="date-input">
+                                </div>
+                                <div class="flex flex-col gap-1">
+                                    <label class="text-[10px] text-gray-500 font-bold">Taller 8 (5%)</label>
+                                    <input v-model="config.lab8Name" class="config-input mb-1">
+                                    <input type="date" v-model="config.lab8Date" class="date-input">
+                                </div>
+                                <div class="flex flex-col gap-1">
+                                    <label class="text-[10px] text-gray-500 font-bold">Taller 9 (3%)</label>
+                                    <input v-model="config.lab9Name" class="config-input mb-1">
+                                    <input type="date" v-model="config.lab9Date" class="date-input">
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <h4 class="font-bold text-gray-700 mb-2 border-b pb-1">2. Evaluaciones Centrales (70%)</h4>
+                                    <div class="grid grid-cols-3 gap-3">
+                                        <div class="flex flex-col gap-1">
+                                            <label class="text-[10px] text-gray-500 font-bold">Parcial 1 (20%)</label>
+                                            <input v-model="config.exam1Name" class="config-input mb-1">
+                                            <input type="date" v-model="config.exam1Date" class="date-input">
+                                        </div>
+                                        <div class="flex flex-col gap-1">
+                                            <label class="text-[10px] text-gray-500 font-bold">Parcial 2 (20%)</label>
+                                            <input v-model="config.exam2Name" class="config-input mb-1">
+                                            <input type="date" v-model="config.exam2Date" class="date-input">
+                                        </div>
+                                        <div class="flex flex-col gap-1">
+                                            <label class="text-[10px] text-gray-500 font-bold">Proyecto (30%)</label>
+                                            <input v-model="config.finalName" class="config-input mb-1">
+                                            <input type="date" v-model="config.finalDate" class="date-input">
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div>
+                                    <h4 class="font-bold text-blue-700 mb-2 border-b pb-1">3. Evaluaciones Emergentes</h4>
+                                    <div class="grid grid-cols-3 gap-3">
+                                        <div><input v-model="config.custom1Name" class="config-input font-bold" placeholder="Nombre"><input type="number" v-model.number="config.custom1Weight" class="w-12 border rounded text-center text-xs" placeholder="%"></div>
+                                        <div><input v-model="config.custom2Name" class="config-input font-bold" placeholder="Nombre"><input type="number" v-model.number="config.custom2Weight" class="w-12 border rounded text-center text-xs" placeholder="%"></div>
+                                        <div><input v-model="config.custom3Name" class="config-input font-bold" placeholder="Nombre"><input type="number" v-model.number="config.custom3Weight" class="w-12 border rounded text-center text-xs" placeholder="%"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </details>
+                </div>
+
+                <div class="bg-white rounded shadow overflow-x-auto pb-12">
+                    <table class="w-full text-sm text-left border-collapse">
+                        <thead class="text-xs text-white uppercase univalle-gray">
+                            <tr class="h-14">
+                                <th class="px-2 py-2 sticky left-0 univalle-gray z-20 shadow-lg min-w-[250px]">Estudiante</th>
+                                
+                                <th class="px-1 py-1 text-center bg-red-800 min-w-[55px]" :title="config.lab1Name">
+                                    {{config.lab1Name.substring(0,6)}}<br><span class="text-[9px] text-yellow-200 block">{{formatDate(config.lab1Date)}}</span>2%
+                                </th>
+                                <th class="px-1 py-1 text-center bg-red-800 min-w-[55px]" :title="config.lab2Name">
+                                    {{config.lab2Name.substring(0,6)}}<br><span class="text-[9px] text-yellow-200 block">{{formatDate(config.lab2Date)}}</span>3%
+                                </th>
+                                <th class="px-1 py-1 text-center bg-red-800 min-w-[55px]" :title="config.lab3Name">
+                                    {{config.lab3Name.substring(0,6)}}<br><span class="text-[9px] text-yellow-200 block">{{formatDate(config.lab3Date)}}</span>5%
+                                </th>
+                                <th class="px-1 py-1 text-center bg-red-800 min-w-[55px]" :title="config.lab4Name">
+                                    {{config.lab4Name.substring(0,6)}}<br><span class="text-[9px] text-yellow-200 block">{{formatDate(config.lab4Date)}}</span>3%
+                                </th>
+                                <th class="px-1 py-1 text-center bg-red-800 min-w-[55px]" :title="config.lab5Name">
+                                    {{config.lab5Name.substring(0,6)}}<br><span class="text-[9px] text-yellow-200 block">{{formatDate(config.lab5Date)}}</span>2%
+                                </th>
+                                <th class="px-1 py-1 text-center bg-red-800 min-w-[55px]" :title="config.lab6Name">
+                                    {{config.lab6Name.substring(0,6)}}<br><span class="text-[9px] text-yellow-200 block">{{formatDate(config.lab6Date)}}</span>3%
+                                </th>
+                                <th class="px-1 py-1 text-center bg-red-800 min-w-[55px]" :title="config.lab7Name">
+                                    {{config.lab7Name.substring(0,6)}}<br><span class="text-[9px] text-yellow-200 block">{{formatDate(config.lab7Date)}}</span>2%
+                                </th>
+                                <th class="px-1 py-1 text-center bg-red-800 min-w-[55px]" :title="config.lab8Name">
+                                    {{config.lab8Name.substring(0,6)}}<br><span class="text-[9px] text-yellow-200 block">{{formatDate(config.lab8Date)}}</span>5%
+                                </th>
+                                <th class="px-1 py-1 text-center bg-red-800 min-w-[55px]" :title="config.lab9Name">
+                                    {{config.lab9Name.substring(0,6)}}<br><span class="text-[9px] text-yellow-200 block">{{formatDate(config.lab9Date)}}</span>3%
+                                </th>
+                                
+                                <th class="px-1 py-1 text-center bg-gray-600 min-w-[60px]" :title="config.exam1Name">
+                                    {{config.exam1Name.substring(0,6)}}<br><span class="text-[9px] text-yellow-200 block">{{formatDate(config.exam1Date)}}</span>20%
+                                </th>
+                                <th class="px-1 py-1 text-center bg-gray-600 min-w-[60px]" :title="config.exam2Name">
+                                    {{config.exam2Name.substring(0,6)}}<br><span class="text-[9px] text-yellow-200 block">{{formatDate(config.exam2Date)}}</span>20%
+                                </th>
+                                <th class="px-1 py-1 text-center bg-black min-w-[65px]" :title="config.finalName">
+                                    {{config.finalName.substring(0,6)}}<br><span class="text-[9px] text-yellow-200 block">{{formatDate(config.finalDate)}}</span>30%
+                                </th>
+                                
+                                <th class="px-1 py-1 text-center bg-blue-800 min-w-[55px]">{{config.custom1Name}}<br>{{config.custom1Weight}}%</th>
+                                <th class="px-1 py-1 text-center bg-blue-800 min-w-[55px]">{{config.custom2Name}}<br>{{config.custom2Weight}}%</th>
+                                <th class="px-1 py-1 text-center bg-blue-800 min-w-[55px]">{{config.custom3Name}}<br>{{config.custom3Weight}}%</th>
+                                
+                                <th class="px-3 py-1 text-center sticky right-0 univalle-gray z-20 shadow-lg">FINAL</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="(student, index) in students" :key="student.id" class="border-b hover:bg-gray-50 group">
+                                <td class="px-2 py-2 font-medium sticky left-0 bg-white group-hover:bg-gray-50 shadow-sm whitespace-nowrap border-r z-10">
+                                    <div class="flex flex-col">
+                                        <div class="flex items-center gap-1">
+                                            <span class="text-xs text-gray-400 font-mono w-5">{{ index + 1 }}.</span>
+                                            <span class="text-sm font-bold text-gray-800 uppercase">{{ student.name }}</span>
+                                        </div>
+                                        <div class="pl-6">
+                                            <span class="text-[10px] text-gray-600 font-mono block">Cód: {{ student.code }}</span>
+                                        </div>
+                                    </div>
+                                </td>
+                                
+                                <td class="p-1 border-r"><input type="number" step="0.1" min="0" max="5" v-model="student.grades.storyboard" class="w-full text-center focus:bg-yellow-100 rounded focus:outline-none focus:ring-1 focus:ring-red-500"></td>
+                                <td class="p-1 border-r"><input type="number" step="0.1" min="0" max="5" v-model="student.grades.graca" class="w-full text-center focus:bg-yellow-100 rounded focus:outline-none focus:ring-1 focus:ring-red-500"></td>
+                                <td class="p-1 border-r"><input type="number" step="0.1" min="0" max="5" v-model="student.grades.info" class="w-full text-center focus:bg-yellow-100 rounded focus:outline-none focus:ring-1 focus:ring-red-500"></td>
+                                <td class="p-1 border-r"><input type="number" step="0.1" min="0" max="5" v-model="student.grades.microvideo" class="w-full text-center focus:bg-yellow-100 rounded focus:outline-none focus:ring-1 focus:ring-red-500"></td>
+                                <td class="p-1 border-r"><input type="number" step="0.1" min="0" max="5" v-model="student.grades.podcast" class="w-full text-center focus:bg-yellow-100 rounded focus:outline-none focus:ring-1 focus:ring-red-500"></td>
+                                <td class="p-1 border-r"><input type="number" step="0.1" min="0" max="5" v-model="student.grades.reportage" class="w-full text-center focus:bg-yellow-100 rounded focus:outline-none focus:ring-1 focus:ring-red-500"></td>
+                                <td class="p-1 border-r"><input type="number" step="0.1" min="0" max="5" v-model="student.grades.gif" class="w-full text-center focus:bg-yellow-100 rounded focus:outline-none focus:ring-1 focus:ring-red-500"></td>
+                                <td class="p-1 border-r"><input type="number" step="0.1" min="0" max="5" v-model="student.grades.drama" class="w-full text-center focus:bg-yellow-100 rounded focus:outline-none focus:ring-1 focus:ring-red-500"></td>
+                                <td class="p-1 border-r"><input type="number" step="0.1" min="0" max="5" v-model="student.grades.log" class="w-full text-center focus:bg-yellow-100 rounded focus:outline-none focus:ring-1 focus:ring-red-500"></td>
+                                
+                                <td class="p-1 border-r bg-gray-50"><input type="number" step="0.1" min="0" max="5" v-model="student.grades.p1" class="w-full text-center font-bold text-blue-900 focus:bg-yellow-100 rounded"></td>
+                                <td class="p-1 border-r bg-gray-50"><input type="number" step="0.1" min="0" max="5" v-model="student.grades.p2" class="w-full text-center font-bold text-blue-900 focus:bg-yellow-100 rounded"></td>
+                                <td class="p-1 border-r bg-gray-100"><input type="number" step="0.1" min="0" max="5" v-model="student.grades.finalProj" class="w-full text-center font-bold text-red-900 focus:bg-yellow-100 rounded"></td>
+                                
+                                <td class="p-1 border-r bg-blue-50"><input type="number" step="0.1" min="0" max="5" v-model="student.grades.custom1" class="w-full text-center focus:bg-yellow-100 rounded"></td>
+                                <td class="p-1 border-r bg-blue-50"><input type="number" step="0.1" min="0" max="5" v-model="student.grades.custom2" class="w-full text-center focus:bg-yellow-100 rounded"></td>
+                                <td class="p-1 border-r bg-blue-50"><input type="number" step="0.1" min="0" max="5" v-model="student.grades.custom3" class="w-full text-center focus:bg-yellow-100 rounded"></td>
+                                
+                                <td class="px-2 py-2 text-center font-bold sticky right-0 bg-white group-hover:bg-gray-50 shadow-sm border-l z-10" :class="calculateFinal(student) < 3.0 ? 'text-red-600' : 'text-green-600'">
+                                    {{ calculateFinal(student) }}
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="mt-8 bg-gray-100 p-6 rounded-lg shadow-md border border-gray-300">
+                    <h3 class="font-bold text-lg mb-4 text-gray-800 border-b pb-2">👤 Agregar Nuevo Estudiante</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div class="flex flex-col"><label class="text-xs font-bold text-gray-600">Código</label><input v-model="newStudentCode" class="border p-2 rounded"></div>
+                        <div class="flex flex-col"><label class="text-xs font-bold text-gray-600">Nombre *</label><input v-model="newStudentName" class="border p-2 rounded font-bold"></div>
+                        <div class="flex flex-col"><label class="text-xs font-bold text-gray-600">Correo</label><input v-model="newStudentEmail" class="border p-2 rounded"></div>
+                        <div class="flex flex-col"><label class="text-xs font-bold text-gray-600">Programa</label><input v-model="newStudentProgram" class="border p-2 rounded"></div>
+                    </div>
+                    <div class="flex justify-between items-center mt-6">
+                        <button @click="addStudent" class="bg-gray-800 text-white px-6 py-2 rounded hover:bg-black font-bold">➕ Agregar</button>
+                        <button @click="deleteMode = !deleteMode" class="text-red-500 text-sm underline">{{ deleteMode ? 'Terminar de borrar' : 'Borrar estudiantes' }}</button>
+                    </div>
+                </div>
+                 <div v-if="deleteMode" class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-2">
+                    <div v-for="(student, index) in students" :key="student.id" class="bg-white p-2 rounded shadow flex justify-between text-sm">
+                        <span>{{student.name}}</span> <button @click="removeStudent(index)" class="text-red-600 font-bold">×</button>
+                    </div>
+                </div>
+            </div>
+
+            <div v-if="currentTab === 'attendance'">
+                
+                <div class="bg-white p-3 rounded shadow mb-4 border border-gray-200">
+                    <details>
+                        <summary class="font-bold text-gray-700 text-sm cursor-pointer select-none">🗓️ Configurar Fechas de Clases (Clic para abrir)</summary>
+                        <div class="mt-4 p-4 bg-gray-50 rounded text-sm grid grid-cols-3 md:grid-cols-6 gap-3">
+                            <div v-for="n in 18" :key="n" class="flex flex-col">
+                                <label class="text-[10px] font-bold text-gray-500">Sesión {{n}}</label>
+                                <input type="date" v-model="config.attendanceDates[n-1]" class="date-input">
+                            </div>
+                        </div>
+                    </details>
+                </div>
+
+                <div class="bg-white rounded shadow overflow-x-auto">
+                    <table class="w-full text-sm text-left">
+                        <thead class="text-xs text-white uppercase univalle-gray">
+                            <tr>
+                                <th class="px-4 py-3 sticky left-0 univalle-gray z-10">Estudiante</th>
+                                <th v-for="n in 18" :key="n" class="px-1 py-3 text-center min-w-[40px]">
+                                    S{{n}}<br>
+                                    <span class="text-[8px] text-yellow-200 block">{{formatDate(config.attendanceDates[n-1])}}</span>
+                                </th>
+                                <th class="px-4 py-3 text-center">%</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="student in students" :key="student.id" class="border-b hover:bg-gray-50 group">
+                                <td class="px-4 py-2 font-medium sticky left-0 bg-white group-hover:bg-gray-50 shadow-sm">{{ student.name }}</td>
+                                <td v-for="(val, idx) in student.attendance" :key="idx" class="text-center border-l">
+                                    <input type="checkbox" v-model="student.attendance[idx]" class="w-4 h-4 accent-red-600 cursor-pointer">
+                                </td>
+                                <td class="px-4 py-2 text-center font-bold">{{ calculateAttendance(student) }}%</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+        
+        <footer class="bg-gray-800 text-white text-center py-2 text-xs">
+            Univalle Cartago - Tecnología en Producción Agroambiental
+        </footer>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getDatabase, ref, onValue, set } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+        import { createApp } from "https://unpkg.com/vue@3/dist/vue.esm-browser.js";
+
+        // --- ⬇️ PEGA AQUÍ TU CONFIGURACIÓN DE FIREBASE ⬇️ ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyDMEHX-OhYwjEwb76ogPeSdt-0BKYvYDQE",
+            authDomain: "notas-univalle-cartago.firebaseapp.com",
+            databaseURL: "https://notas-univalle-cartago-default-rtdb.firebaseio.com",
+            projectId: "notas-univalle-cartago",
+            storageBucket: "notas-univalle-cartago.firebasestorage.app",
+            messagingSenderId: "176104430404",
+            appId: "1:176104430404:web:33de8737c58fbe47725511"
+        };
+        // --- ⬆️ FIN DE LA CONFIGURACIÓN ⬆️ ---
+
+
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+        const dbRef = ref(db, 'curso_intro_tech');
+
+        createApp({
+            data() {
+                return {
+                    currentTab: 'grades',
+                    status: 'saved',
+                    loading: true,
+                    deleteMode: false,
+                    isRemoteUpdate: false,
+                    newStudentName: '',
+                    newStudentCode: '',
+                    newStudentEmail: '',
+                    newStudentProgram: '',
+                    // CONFIGURACIÓN CON FECHAS
+                    config: {
+                        attendanceDates: Array(18).fill(''), // 18 fechas de asistencia
+                        // Talleres
+                        lab1Name: 'Storyboard', lab1Date: '',
+                        lab2Name: 'GRACA', lab2Date: '',
+                        lab3Name: 'Infografía', lab3Date: '',
+                        lab4Name: 'Micro-video', lab4Date: '',
+                        lab5Name: 'Podcast', lab5Date: '',
+                        lab6Name: 'Video Reportaje', lab6Date: '',
+                        lab7Name: 'GIF/Video', lab7Date: '',
+                        lab8Name: 'Drama Ética', lab8Date: '',
+                        lab9Name: 'Bitácora', lab9Date: '',
+                        // Parciales
+                        exam1Name: 'Parcial I', exam1Date: '',
+                        exam2Name: 'Parcial II', exam2Date: '',
+                        finalName: 'Proyecto Final', finalDate: '',
+                        // Emergentes
+                        custom1Name: 'Extra 1', custom1Weight: 0,
+                        custom2Name: 'Extra 2', custom2Weight: 0,
+                        custom3Name: 'Extra 3', custom3Weight: 0
+                    },
+                    students: []
+                }
+            },
+            mounted() {
+                onValue(dbRef, (snapshot) => {
+                    this.loading = false;
+                    const data = snapshot.val();
+                    if (data) {
+                        this.isRemoteUpdate = true;
+                        this.students = data.students || [];
+                        if (data.config) {
+                            // Fusión cuidadosa para no perder fechas nuevas
+                            this.config = { ...this.config, ...data.config };
+                            // Aseguramos que el array de fechas de asistencia tenga tamaño 18
+                            if(!this.config.attendanceDates) this.config.attendanceDates = Array(18).fill('');
+                        }
+                        this.sortStudents(); 
+                        this.$nextTick(() => { this.isRemoteUpdate = false; });
+                    } else {
+                         if (!this.students.length) this.students = [];
+                    }
+                }, (error) => {
+                    this.status = 'error';
+                    console.error(error);
+                });
+            },
+            watch: {
+                students: {
+                    handler() { if (!this.isRemoteUpdate) this.pushToFirebase(); },
+                    deep: true
+                },
+                config: {
+                    handler() { if (!this.isRemoteUpdate) this.pushToFirebase(); },
+                    deep: true
+                }
+            },
+            methods: {
+                pushToFirebase() {
+                    this.status = 'editing';
+                    set(dbRef, {
+                        students: JSON.parse(JSON.stringify(this.students)),
+                        config: JSON.parse(JSON.stringify(this.config)),
+                        lastUpdated: new Date().toISOString()
+                    }).then(() => {
+                        this.status = 'saved';
+                    }).catch((err) => {
+                        this.status = 'error';
+                    });
+                },
+                
+                sortStudents() {
+                    this.students.sort((a, b) => {
+                        return a.name.localeCompare(b.name, 'es', { sensitivity: 'base' });
+                    });
+                },
+
+                // Helper para mostrar fecha corta "DD/MM"
+                formatDate(dateString) {
+                    if (!dateString) return '';
+                    const parts = dateString.split('-'); // YYYY-MM-DD
+                    if (parts.length !== 3) return dateString;
+                    return `${parts[2]}/${parts[1]}`; // DD/MM
+                },
+
+                // Helper para encabezado excel con fecha
+                headerWithDate(name, date, weight) {
+                    let txt = name;
+                    if(date) txt += ` [${date}]`;
+                    if(weight) txt += ` (${weight}%)`;
+                    return txt;
+                },
+
+                downloadTemplate() {
+                    const data = [
+                        { "No.": 1, "Código": "202401", "Nombre Completo": "Pérez Juan", "Correo institucional": "juan@univalle.edu.co", "Programa": "Agroambiental" },
+                        { "No.": 2, "Código": "202402", "Nombre Completo": "Gómez María", "Correo institucional": "maria@univalle.edu.co", "Programa": "Agroambiental" }
+                    ];
+                    const ws = XLSX.utils.json_to_sheet(data);
+                    const wb = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(wb, ws, "Plantilla");
+                    XLSX.writeFile(wb, "Plantilla_Estudiantes.xlsx");
+                },
+
+                importExcel(event) {
+                    const file = event.target.files[0];
+                    if (!file) return;
+
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        const data = new Uint8Array(e.target.result);
+                        const workbook = XLSX.read(data, { type: 'array' });
+                        const firstSheetName = workbook.SheetNames[0];
+                        const worksheet = workbook.Sheets[firstSheetName];
+                        const jsonData = XLSX.utils.sheet_to_json(worksheet);
+
+                        if (jsonData.length > 0) {
+                            if(confirm(`Se encontraron ${jsonData.length} registros. ¿Deseas agregarlos?`)) {
+                                jsonData.forEach(row => {
+                                    const findValue = (targetKeys) => {
+                                        const cleanKeys = targetKeys.map(k => k.toLowerCase().replace(/\s/g, '').normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
+                                        for (const [key, value] of Object.entries(row)) {
+                                            const cleanKey = key.toLowerCase().replace(/\s/g, '').normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                                            if (cleanKeys.includes(cleanKey)) return value;
+                                        }
+                                        return '';
+                                    };
+                                    const name = findValue(['nombrecompleto', 'nombre', 'estudiante']) || 'Sin Nombre';
+                                    const code = findValue(['codigo', 'code', 'id']);
+                                    const email = findValue(['correoinstitucional', 'correo', 'email']);
+                                    const program = findValue(['programa', 'carrera']);
+                                    this.students.push({
+                                        id: Date.now() + Math.random(),
+                                        name: name, code: code, email: email, program: program,
+                                        grades: { storyboard: 0, graca: 0, info: 0, microvideo: 0, podcast: 0, reportage: 0, gif: 0, drama: 0, log: 0, p1: 0, p2: 0, finalProj: 0, custom1: 0, custom2: 0, custom3: 0 },
+                                        attendance: Array(18).fill(false)
+                                    });
+                                });
+                                this.sortStudents(); 
+                                alert("¡Importación exitosa!");
+                            }
+                        } else {
+                            alert("Archivo vacío.");
+                        }
+                    };
+                    reader.readAsArrayBuffer(file);
+                    event.target.value = ''; 
+                },
+
+                addStudent() {
+                    if(!this.newStudentName) { alert("Nombre obligatorio"); return; }
+                    this.students.push({
+                        id: Date.now(),
+                        name: this.newStudentName, code: this.newStudentCode, email: this.newStudentEmail, program: this.newStudentProgram,
+                        grades: { storyboard: 0, graca: 0, info: 0, microvideo: 0, podcast: 0, reportage: 0, gif: 0, drama: 0, log: 0, p1: 0, p2: 0, finalProj: 0, custom1: 0, custom2: 0, custom3: 0 },
+                        attendance: Array(18).fill(false)
+                    });
+                    this.sortStudents();
+                    this.newStudentName = ''; this.newStudentCode = ''; this.newStudentEmail = ''; this.newStudentProgram = '';
+                },
+
+                removeStudent(index) {
+                    if(confirm("¿Eliminar?")) this.students.splice(index, 1);
+                },
+                
+                safeFloat(val) {
+                    if (val === "" || val === null || val === undefined) return 0;
+                    return parseFloat(String(val).replace(',', '.')) || 0;
+                },
+                calculateFinal(student) {
+                    const g = student.grades;
+                    let total = 
+                        (this.safeFloat(g.storyboard) * 0.02) + (this.safeFloat(g.graca) * 0.03) + (this.safeFloat(g.info) * 0.05) +
+                        (this.safeFloat(g.microvideo) * 0.03) + (this.safeFloat(g.podcast) * 0.02) + (this.safeFloat(g.reportage) * 0.03) +
+                        (this.safeFloat(g.gif) * 0.02) + (this.safeFloat(g.drama) * 0.05) + (this.safeFloat(g.log) * 0.03) +
+                        (this.safeFloat(g.p1) * 0.20) + (this.safeFloat(g.p2) * 0.20) + (this.safeFloat(g.finalProj) * 0.30);
+                    
+                    total += (this.safeFloat(g.custom1) * (this.config.custom1Weight / 100));
+                    total += (this.safeFloat(g.custom2) * (this.config.custom2Weight / 100));
+                    total += (this.safeFloat(g.custom3) * (this.config.custom3Weight / 100));
+                    return total.toFixed(1);
+                },
+                calculateAttendance(student) {
+                    if(!student.attendance) return 0;
+                    const present = student.attendance.filter(a => a).length;
+                    return ((present / 18) * 100).toFixed(0);
+                },
+                
+                exportToExcel() {
+                    const c = this.config;
+                    // Generamos encabezados dinámicos con fecha
+                    const h = {
+                        l1: this.headerWithDate(c.lab1Name, c.lab1Date, 2),
+                        l2: this.headerWithDate(c.lab2Name, c.lab2Date, 3),
+                        l3: this.headerWithDate(c.lab3Name, c.lab3Date, 5),
+                        l4: this.headerWithDate(c.lab4Name, c.lab4Date, 3),
+                        l5: this.headerWithDate(c.lab5Name, c.lab5Date, 2),
+                        l6: this.headerWithDate(c.lab6Name, c.lab6Date, 3),
+                        l7: this.headerWithDate(c.lab7Name, c.lab7Date, 2),
+                        l8: this.headerWithDate(c.lab8Name, c.lab8Date, 5),
+                        l9: this.headerWithDate(c.lab9Name, c.lab9Date, 3),
+                        e1: this.headerWithDate(c.exam1Name, c.exam1Date, 20),
+                        e2: this.headerWithDate(c.exam2Name, c.exam2Date, 20),
+                        fin: this.headerWithDate(c.finalName, c.finalDate, 30)
+                    };
+
+                    const data = this.students.map((s, index) => {
+                        let row = {
+                            "No.": index + 1, "Código": s.code, "Nombre": s.name, "Email": s.email || '', "Programa": s.program || ''
+                        };
+                        // Mapear notas a encabezados dinámicos
+                        row[h.l1] = s.grades.storyboard; row[h.l2] = s.grades.graca; row[h.l3] = s.grades.info;
+                        row[h.l4] = s.grades.microvideo; row[h.l5] = s.grades.podcast; row[h.l6] = s.grades.reportage;
+                        row[h.l7] = s.grades.gif; row[h.l8] = s.grades.drama; row[h.l9] = s.grades.log;
+                        row[h.e1] = s.grades.p1; row[h.e2] = s.grades.p2; row[h.fin] = s.grades.finalProj;
+                        
+                        // Emergentes
+                        row[c.custom1Name || "Extra 1"] = s.grades.custom1;
+                        row[c.custom2Name || "Extra 2"] = s.grades.custom2;
+                        row[c.custom3Name || "Extra 3"] = s.grades.custom3;
+
+                        row["Definitiva"] = this.calculateFinal(s);
+                        row["Asistencia %"] = this.calculateAttendance(s) + '%';
+                        
+                        // Agregar detalle asistencia por fecha si se desea (opcional, para no saturar)
+                        // s.attendance.forEach((att, i) => { if(c.attendanceDates[i]) row[`Asist ${c.attendanceDates[i]}`] = att ? 'SI' : 'NO'; });
+
+                        return row;
+                    });
+                    
+                    const ws = XLSX.utils.json_to_sheet(data);
+                    const wb = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(wb, ws, "Notas y Fechas");
+                    XLSX.writeFile(wb, "Reporte_Cronograma_Univalle.xlsx");
+                }
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
