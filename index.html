@@ -591,5 +591,46 @@
             }
         }).mount('#app');
     </script>
+    <script type="module">
+  // Import the functions you need from the SDKs you need
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-app.js";
+  import { getFirestore, collection, addDoc } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore.js";
+  // TODO: Add SDKs for Firebase products that you want to use
+  // https://firebase.google.com/docs/web/setup#available-libraries
+
+  // Your web app's Firebase configuration
+    const firebaseConfig = {
+      apiKey: "AIzaSyDMEHX-OhYwjEwb76ogPeSdt-OBKYvYDQE",
+      authDomain: "notas-univalle-cartago.firebaseapp.com",
+      databaseURL: "https://notas-univalle-cartago-default-rtdb.firebaseio.com",
+      projectId: "notas-univalle-cartago",
+      storageBucket: "notas-univalle-cartago.firebasestorage.app",
+      messagingSenderId: "176104430404",
+      appId: "1:176104430404:web:33de8737c58fbe47725511"
+    };
+
+    // Initialize Firebase
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    // --- PRUEBA DE CONEXIÓN A FIREBASE ---
+async function guardarEstudiantePrueba() {
+  try {
+    // Le decimos que guarde en una colección llamada "calificaciones"
+    const docRef = await addDoc(collection(db, "calificaciones"), {
+      nombre: "Estudiante de Prueba",
+      codigo: "2026100",
+      notaFinal: 4.5,
+      materia: "Tecnología e Informática"
+    });
+    console.log("¡Éxito! Estudiante guardado con el ID: ", docRef.id);
+    alert("¡Conexión a Firebase exitosa! Revisa tu base de datos en la web.");
+  } catch (e) {
+    console.error("Hubo un error al guardar el dato: ", e);
+    alert("Hubo un error. Revisa la consola de tu navegador.");
+  }
+}
+
+// Hacemos que la función se ejecute sola para probar
+guardarEstudiantePrueba();
 </body>
 </html>
