@@ -399,29 +399,39 @@ onAuthStateChanged(auth, (user) => {
                     students: []
                 }
             },
-            mounted() {
-                onValue(dbRef, (snapshot) => {
-                    this.loading = false;
-                    const data = snapshot.val();
-                    if (data) {
-                        this.isRemoteUpdate = true;
-                        this.students = data.students || [];
-                        if (data.config) {
-                            // Fusión cuidadosa para no perder fechas nuevas
-                            this.config = { ...this.config, ...data.config };
-                            // Aseguramos que el array de fechas de asistencia tenga tamaño 18
-                            if(!this.config.attendanceDates) this.config.attendanceDates = Array(18).fill('');
-                        }
-                        this.sortStudents(); 
-                        this.$nextTick(() => { this.isRemoteUpdate = false; });
-                    } else {
-                         if (!this.students.length) this.students = [];
+           mounted() {
+    // Usamos directamente onAuthStateChanged y getAuth() sin re-declarar variables
+    onAuthStateChanged(getAuth(), (user) => {
+        if (user) {
+            // Si el profesor inició sesión, usamos el dbRef que ya existía arriba
+            onValue(dbRef, (snapshot) => {
+                this.loading = false;
+                const data = snapshot.val();
+                if (data) {
+                    this.isRemoteUpdate = true;
+                    this.students = data.students || [];
+                    if (data.config) {
+                        this.config = { ...this.config, ...data.config };
+                        if(!this.config.attendanceDates) this.config.attendanceDates = Array(18).fill('');
                     }
-                }, (error) => {
-                    this.status = 'error';
-                    console.error(error);
-                });
-            },
+                    this.sortStudents(); 
+                    this.$nextTick(() => { this.isRemoteUpdate = false; });
+                } else {
+                     if (!this.students.length) this.students = [];
+                     this.loading = false;
+                }
+            }, (error) => {
+                this.status = 'error';
+                this.loading = false;
+                console.error("Error al leer datos:", error);
+            });
+        } else {
+            // Si no hay sesión, simplemente quitamos el letrero de carga
+            this.loading = false;
+            console.log("Esperando inicio de sesión...");
+        }
+    });
+},
             watch: {
                 students: {
                     handler() { if (!this.isRemoteUpdate) this.pushToFirebase(); },
@@ -479,52 +489,137 @@ onAuthStateChanged(auth, (user) => {
                     XLSX.writeFile(wb, "Plantilla_Estudiantes.xlsx");
                 },
 
-                importExcel(event) {
-                    const file = event.target.files[0];
-                    if (!file) return;
+             importExcel(event) {
+    const file = event.target.files[0];
+    if (!file) return;
 
-                    const reader = new FileReader();
-                    reader.onload = (e) => {
-                        const data = new Uint8Array(e.target.result);
-                        const workbook = XLSX.read(data, { type: 'array' });
-                        const firstSheetName = workbook.SheetNames[0];
-                        const worksheet = workbook.Sheets[firstSheetName];
-                        const jsonData = XLSX.utils.sheet_to_json(worksheet);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        
+        const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
 
-                        if (jsonData.length > 0) {
-                            if(confirm(`Se encontraron ${jsonData.length} registros. ¿Deseas agregarlos?`)) {
-                                jsonData.forEach(row => {
-                                    const findValue = (targetKeys) => {
-                                        const cleanKeys = targetKeys.map(k => k.toLowerCase().replace(/\s/g, '').normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
-                                        for (const [key, value] of Object.entries(row)) {
-                                            const cleanKey = key.toLowerCase().replace(/\s/g, '').normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-                                            if (cleanKeys.includes(cleanKey)) return value;
-                                        }
-                                        return '';
-                                    };
-                                    const name = findValue(['nombrecompleto', 'nombre', 'estudiante']) || 'Sin Nombre';
-                                    const code = findValue(['codigo', 'code', 'id']);
-                                    const email = findValue(['correoinstitucional', 'correo', 'email']);
-                                    const program = findValue(['programa', 'carrera']);
-                                    this.students.push({
-                                        id: Date.now() + Math.random(),
-                                        name: name, code: code, email: email, program: program,
-                                        grades: { storyboard: 0, graca: 0, info: 0, microvideo: 0, podcast: 0, reportage: 0, gif: 0, drama: 0, log: 0, p1: 0, p2: 0, finalProj: 0, custom1: 0, custom2: 0, custom3: 0 },
-                                        attendance: Array(18).fill(false)
-                                    });
-                                });
-                                this.sortStudents(); 
-                                alert("¡Importación exitosa!");
-                            }
-                        } else {
-                            alert("Archivo vacío.");
-                        }
+        if (rows.length > 0) {
+            if(confirm(`¿Deseas actualizar las calificaciones con el archivo exportado por la App?`)) {
+                
+                let headerIndex = -1;
+                let colIndex = {};
+
+                for (let i = 0; i < rows.length; i++) {
+                    const cleanRow = rows[i].map(cell => String(cell).toLowerCase().replace(/\s/g, '').normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
+                    const namePos = cleanRow.findIndex(c => c.includes('nombre') || c.includes('estudiante'));
+
+                    if (namePos !== -1) {
+                        headerIndex = i;
+                        colIndex.name = namePos;
+                        colIndex.code = cleanRow.findIndex(c => c.includes('codigo') || c.includes('id'));
+                        colIndex.email = cleanRow.findIndex(c => c.includes('correo') || c.includes('email'));
+                        colIndex.program = cleanRow.findIndex(c => c.includes('programa') || c.includes('carrera'));
+
+                        colIndex.storyboard = cleanRow.findIndex(c => c === 'storyboard' || c.includes('storyboard'));
+                        colIndex.graca = cleanRow.findIndex(c => c === 'graca' || c.includes('graca') || c.includes('guion'));
+                        colIndex.info = cleanRow.findIndex(c => c === 'info' || c.includes('info') || c.includes('finca'));
+                        colIndex.microvideo = cleanRow.findIndex(c => c === 'microvideo' || c.includes('microvideo') || c.includes('informativa'));
+                        colIndex.podcast = cleanRow.findIndex(c => c === 'podcast' || c.includes('podcast') || c.includes('emisora'));
+                        colIndex.reportage = cleanRow.findIndex(c => c === 'reportaje' || c.includes('reportaje'));
+                        colIndex.gif = cleanRow.findIndex(c => c === 'gif' || c.includes('gif') || c.includes('animado') || c.includes('ambiente'));
+                        colIndex.drama = cleanRow.findIndex(c => c === 'drama' || c.includes('drama') || c.includes('etica'));
+                        colIndex.log = cleanRow.findIndex(c => c === 'log' || c.includes('bitacora') || c.includes('tecne'));
+                        
+                        // --- SOLUCIÓN PARA PARCIALES (Reconoce números romanos I y II) ---
+                        colIndex.p1 = cleanRow.findIndex(c => c.includes('p1') || c.includes('parcial1') || (c.includes('parciali') && !c.includes('parcialii')));
+                        colIndex.p2 = cleanRow.findIndex(c => c.includes('p2') || c.includes('parcial2') || c.includes('parcialii'));
+                        colIndex.finalProj = cleanRow.findIndex(c => c.includes('finalproj') || c.includes('final') || c.includes('definitiva'));
+                        
+                        // --- SOLUCIÓN PARA OPCIONALES ---
+                        colIndex.custom1 = cleanRow.findIndex(c => c.includes('opcional1') || c.includes('extra1'));
+                        colIndex.custom2 = cleanRow.findIndex(c => c.includes('opcional2') || c.includes('extra2'));
+                        colIndex.custom3 = cleanRow.findIndex(c => c.includes('opcional3') || c.includes('extra3'));
+                        break; 
+                    }
+                }
+
+                if (headerIndex === -1) {
+                    alert("No pude detectar la columna 'Nombre'. Verifica el formato del Excel.");
+                    return;
+                }
+
+                let listaActualizada = JSON.parse(JSON.stringify(this.students));
+                let actualizados = 0;
+                let nuevos = 0;
+
+                for (let i = headerIndex + 1; i < rows.length; i++) {
+                    const row = rows[i];
+                    const name = row[colIndex.name] ? String(row[colIndex.name]).trim() : '';
+                    
+                    if (!name) continue; 
+
+                    const code = colIndex.code !== -1 && row[colIndex.code] ? String(row[colIndex.code]).trim() : '';
+
+                    const parseG = (colPos) => {
+                        if (colPos === -1 || colPos === undefined) return 0; 
+                        let val = row[colPos];
+                        if (val === undefined || val === null || val === "" || val === " ") return 0;
+                        let textValue = String(val).replace(',', '.').trim();
+                        let match = textValue.match(/^(\d+(\.\d+)?)/); 
+                        return match ? parseFloat(match[1]) : 0;
                     };
-                    reader.readAsArrayBuffer(file);
-                    event.target.value = ''; 
-                },
 
-                addStudent() {
+                    let estudianteExistente = listaActualizada.find(s => {
+                        const matchCodigo = code && s.code && String(s.code).trim() === code;
+                        const matchNombre = name && s.name && s.name.toLowerCase().trim() === name.toLowerCase();
+                        return matchCodigo || matchNombre;
+                    });
+
+                    const notasExtraidas = {
+                        storyboard: parseG(colIndex.storyboard),
+                        graca: parseG(colIndex.graca),
+                        info: parseG(colIndex.info),
+                        microvideo: parseG(colIndex.microvideo),
+                        podcast: parseG(colIndex.podcast),
+                        reportage: parseG(colIndex.reportage),
+                        gif: parseG(colIndex.gif),
+                        drama: parseG(colIndex.drama),
+                        log: parseG(colIndex.log),
+                        p1: parseG(colIndex.p1),
+                        p2: parseG(colIndex.p2),
+                        finalProj: parseG(colIndex.finalProj),
+                        // --- AHORA SÍ EXTRAERÁ ESTAS NOTAS EN LUGAR DE PONER 0 ---
+                        custom1: parseG(colIndex.custom1),
+                        custom2: parseG(colIndex.custom2),
+                        custom3: parseG(colIndex.custom3)
+                    };
+
+                    if (estudianteExistente) {
+                        estudianteExistente.grades = notasExtraidas;
+                        actualizados++;
+                    } else {
+                        listaActualizada.push({
+                            id: Date.now() + Math.random() + i,
+                            code: code,
+                            name: name,
+                            email: colIndex.email !== -1 ? String(row[colIndex.email]) : '',
+                            program: colIndex.program !== -1 ? String(row[colIndex.program]) : '',
+                            grades: notasExtraidas,
+                            attendance: Array(18).fill(false)
+                        });
+                        nuevos++;
+                    }
+                }
+
+                this.students = listaActualizada;
+                this.sortStudents();
+                
+                alert(`¡Sincronización exitosa!\n\n• Alumnos actualizados: ${actualizados}\n• Alumnos nuevos: ${nuevos}\n\nRevisa la tabla y presiona GUARDADO.`);
+            }
+        }
+    };
+    reader.readAsArrayBuffer(file);
+    event.target.value = ''; 
+},                addStudent() {
                     if(!this.newStudentName) { alert("Nombre obligatorio"); return; }
                     this.students.push({
                         id: Date.now(),
@@ -564,52 +659,77 @@ onAuthStateChanged(auth, (user) => {
                 },
                 
                 exportToExcel() {
-                    const c = this.config;
-                    // Generamos encabezados dinámicos con fecha
-                    const h = {
-                        l1: this.headerWithDate(c.lab1Name, c.lab1Date, 2),
-                        l2: this.headerWithDate(c.lab2Name, c.lab2Date, 3),
-                        l3: this.headerWithDate(c.lab3Name, c.lab3Date, 5),
-                        l4: this.headerWithDate(c.lab4Name, c.lab4Date, 3),
-                        l5: this.headerWithDate(c.lab5Name, c.lab5Date, 2),
-                        l6: this.headerWithDate(c.lab6Name, c.lab6Date, 3),
-                        l7: this.headerWithDate(c.lab7Name, c.lab7Date, 2),
-                        l8: this.headerWithDate(c.lab8Name, c.lab8Date, 5),
-                        l9: this.headerWithDate(c.lab9Name, c.lab9Date, 3),
-                        e1: this.headerWithDate(c.exam1Name, c.exam1Date, 20),
-                        e2: this.headerWithDate(c.exam2Name, c.exam2Date, 20),
-                        fin: this.headerWithDate(c.finalName, c.finalDate, 30)
-                    };
+    if (!this.students || this.students.length === 0) {
+        alert("No hay estudiantes para exportar.");
+        return;
+    }
 
-                    const data = this.students.map((s, index) => {
-                        let row = {
-                            "No.": index + 1, "Código": s.code, "Nombre": s.name, "Email": s.email || '', "Programa": s.program || ''
-                        };
-                        // Mapear notas a encabezados dinámicos
-                        row[h.l1] = s.grades.storyboard; row[h.l2] = s.grades.graca; row[h.l3] = s.grades.info;
-                        row[h.l4] = s.grades.microvideo; row[h.l5] = s.grades.podcast; row[h.l6] = s.grades.reportage;
-                        row[h.l7] = s.grades.gif; row[h.l8] = s.grades.drama; row[h.l9] = s.grades.log;
-                        row[h.e1] = s.grades.p1; row[h.e2] = s.grades.p2; row[h.fin] = s.grades.finalProj;
-                        
-                        // Emergentes
-                        row[c.custom1Name || "Extra 1"] = s.grades.custom1;
-                        row[c.custom2Name || "Extra 2"] = s.grades.custom2;
-                        row[c.custom3Name || "Extra 3"] = s.grades.custom3;
+    const c = this.config;
+    // Mantenemos intactos sus encabezados dinámicos con fecha y porcentaje
+    const h = {
+        l1: this.headerWithDate(c.lab1Name, c.lab1Date, 2),
+        l2: this.headerWithDate(c.lab2Name, c.lab2Date, 3),
+        l3: this.headerWithDate(c.lab3Name, c.lab3Date, 5),
+        l4: this.headerWithDate(c.lab4Name, c.lab4Date, 3),
+        l5: this.headerWithDate(c.lab5Name, c.lab5Date, 2),
+        l6: this.headerWithDate(c.lab6Name, c.lab6Date, 3),
+        l7: this.headerWithDate(c.lab7Name, c.lab7Date, 2),
+        l8: this.headerWithDate(c.lab8Name, c.lab8Date, 5),
+        l9: this.headerWithDate(c.lab9Name, c.lab9Date, 3),
+        e1: this.headerWithDate(c.exam1Name, c.exam1Date, 20),
+        e2: this.headerWithDate(c.exam2Name, c.exam2Date, 20),
+        fin: this.headerWithDate(c.finalName, c.finalDate, 30)
+    };
 
-                        row["Definitiva"] = this.calculateFinal(s);
-                        row["Asistencia %"] = this.calculateAttendance(s) + '%';
-                        
-                        // Agregar detalle asistencia por fecha si se desea (opcional, para no saturar)
-                        // s.attendance.forEach((att, i) => { if(c.attendanceDates[i]) row[`Asist ${c.attendanceDates[i]}`] = att ? 'SI' : 'NO'; });
+    const exportData = this.students.map((s, index) => {
+        // 1. Cálculos automáticos de asistencia
+        const totalClases = 18;
+        const asistencias = s.attendance ? s.attendance.filter(a => a === true).length : 0;
+        const porcentajeAsistencia = ((asistencias / totalClases) * 100).toFixed(0) + '%';
 
-                        return row;
-                    });
-                    
-                    const ws = XLSX.utils.json_to_sheet(data);
-                    const wb = XLSX.utils.book_new();
-                    XLSX.utils.book_append_sheet(wb, ws, "Notas y Fechas");
-                    XLSX.writeFile(wb, "Reporte_Cronograma_Univalle.xlsx");
+        // 2. Construimos la fila con los encabezados dinámicos
+        let row = {
+            "No.": index + 1,
+            "Código": s.code || s.codigo || '',
+            "Nombre": s.name || s.nombre || '',
+            "Email": s.email || '',
+            "Programa": s.program || '',
+            [h.l1]: s.grades?.storyboard || 0,
+            [h.l2]: s.grades?.graca || 0,
+            [h.l3]: s.grades?.info || 0,
+            [h.l4]: s.grades?.microvideo || 0,
+            [h.l5]: s.grades?.podcast || 0,
+            [h.l6]: s.grades?.reportage || 0,
+            [h.l7]: s.grades?.gif || 0,
+            [h.l8]: s.grades?.drama || 0,
+            [h.l9]: s.grades?.log || 0,
+            [h.e1]: s.grades?.p1 || 0,
+            [h.e2]: s.grades?.p2 || 0,
+            [h.fin]: typeof this.calculateFinal === 'function' ? this.calculateFinal(s) : (s.grades?.finalProj || 0),
+            "Opcional 1": s.grades?.custom1 || 0,
+            "Opcional 2": s.grades?.custom2 || 0,
+            "Opcional 3": s.grades?.custom3 || 0
+        };
+
+        // 3. DETALLE DE ASISTENCIA: Agregamos 18 columnas, una por cada clase
+        for (let claseNum = 1; claseNum <= 18; claseNum++) {
+            const asistio = s.attendance && s.attendance[claseNum - 1];
+            // Le ponemos una "X" si asistió, y lo dejamos vacío si faltó (ideal para Excel)
+            row[`Clase ${claseNum}`] = asistio ? "X" : ""; 
         }
+
+        // 4. Agregamos el porcentaje total de asistencia al final de la fila
+        row["Asistencia %"] = porcentajeAsistencia;
+
+        return row;
+    });
+
+    // Generamos el archivo usando la librería XLSX
+    const worksheet = XLSX.utils.json_to_sheet(exportData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Notas y Asistencia");
+    XLSX.writeFile(workbook, `Excel_Detallado_RMB.xlsx`);
+},
     }
 }).mount('#app');
 </script>
