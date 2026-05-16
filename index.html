@@ -219,7 +219,11 @@
                                     <div class="flex flex-col">
                                         <div class="flex items-center gap-1">
                                             <span class="text-xs text-gray-400 font-mono w-5">{{ index + 1 }}.</span>
-                                            <span class="text-sm font-bold text-gray-800 uppercase">{{ student.name }}</span>
+                                            <span class="text-sm font-bold text-gray-800 uppercase">{{ student.name }}
+                                                <button @click="editarEstudiante(student)" title="Editar estudiante" class="ml-2 text-blue-500 hover:text-blue-700 transition-colors">
+    ✏️
+</button>
+                                            </span>
                                         </div>
                                         <div class="pl-6">
                                             <span class="text-[10px] text-gray-600 font-mono block">Cód: {{ student.code }}</span>
@@ -657,12 +661,26 @@ onAuthStateChanged(auth, (user) => {
                     const present = student.attendance.filter(a => a).length;
                     return ((present / 18) * 100).toFixed(0);
                 },
-                
-                exportToExcel() {
-    if (!this.students || this.students.length === 0) {
-        alert("No hay estudiantes para exportar.");
-        return;
-    }
+
+editarEstudiante(student) {
+        // Pedimos el nuevo nombre
+        const nuevoNombre = prompt("Editar nombre del estudiante:", student.name);
+        if (nuevoNombre !== null && nuevoNombre.trim() !== "") {
+            student.name = nuevoNombre.trim().toUpperCase(); // Forzamos mayúsculas
+        }
+
+        // Pedimos el nuevo código
+        const nuevoCodigo = prompt(`Editar código de ${student.name}:`, student.code);
+        if (nuevoCodigo !== null) {
+            student.code = nuevoCodigo.trim();
+        }
+    },
+
+    exportToExcel() {
+        if (!this.students || this.students.length === 0) {
+            alert("No hay estudiantes para exportar.");
+            return;
+        }
 
     const c = this.config;
     // Mantenemos intactos sus encabezados dinámicos con fecha y porcentaje
@@ -711,11 +729,18 @@ onAuthStateChanged(auth, (user) => {
             "Opcional 3": s.grades?.custom3 || 0
         };
 
-        // 3. DETALLE DE ASISTENCIA: Agregamos 18 columnas, una por cada clase
+       // 3. DETALLE DE ASISTENCIA: Agregamos 18 columnas con sus fechas reales
         for (let claseNum = 1; claseNum <= 18; claseNum++) {
             const asistio = s.attendance && s.attendance[claseNum - 1];
-            // Le ponemos una "X" si asistió, y lo dejamos vacío si faltó (ideal para Excel)
-            row[`Clase ${claseNum}`] = asistio ? "X" : ""; 
+            
+            // Buscamos si usted configuró una fecha para esta sesión en específico
+            let fecha = "";
+            if (c.attendanceDates && c.attendanceDates[claseNum - 1]) {
+                // Si la fecha existe, se la añadimos al título
+                fecha = ` (${c.attendanceDates[claseNum - 1]})`;
+            }
+
+            row[`Sesión ${claseNum}${fecha}`] = asistio ? "X" : ""; 
         }
 
         // 4. Agregamos el porcentaje total de asistencia al final de la fila
